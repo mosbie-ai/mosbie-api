@@ -19,17 +19,27 @@ function sendTelegramNotification(message) {
   const data = JSON.stringify({
     chat_id: TELEGRAM_CHAT_ID,
     text: message,
-    parse_mode: 'HTML' // Ensures Telegram renders bold/code tags
+    parse_mode: 'HTML'
   });
 
   const options = {
     hostname: 'api.telegram.org',
-    path: `/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+    // ADD ?parse_mode=HTML TO THE PATH HERE:
+    path: `/bot${TELEGRAM_BOT_TOKEN}/sendMessage?parse_mode=HTML`,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(data)
     }
+  };
+
+  const req = https.request(options, (res) => {
+    res.on('data', (d) => process.stdout.write(d));
+  });
+  req.on('error', (e) => console.error('Telegram Error:', e));
+  req.write(data);
+  req.end();
+}
   };
 
   const req = https.request(options, (res) => {
