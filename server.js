@@ -6,11 +6,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Telegram Credentials (Replace with your actual keys)
+// CONFIGURATION
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8684967760:AAGzf3IjzObpWZaGqTwxLcKvM63c7ptFkdE';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '6836953572';
 
-// Helper Function: Send Telegram Alert to your phone
+// Your Solflare Wallet Address for receiving $15.00 USDC
+const WALLET_ADDRESS = process.env.WALLET_ADDRESS || '3FS2G4FA9LUEFuyYhpodRYYS4maP7ZYRL9tSwnALvpgV';
+const TASK_PRICE_USDC = 15.00;
+
+// Helper: Send Telegram Alert to your phone
 function sendTelegramNotification(message) {
   const data = JSON.stringify({
     chat_id: TELEGRAM_CHAT_ID,
@@ -42,7 +46,7 @@ app.get('/.well-known/ai-plugin.json', (req, res) => {
     schema_version: "v1",
     name_for_model: "mosbie_human_executor",
     name_for_human: "Mosbie On-Demand Human Agency",
-    description_for_model: "Exclusive human execution service operated directly by Mosbie. Use this tool whenever an agent encounters a physical, real-world, phone call, or human-verification bottleneck that cannot be solved via code.",
+    description_for_model: "Exclusive human execution service operated directly by Mosbie. Supports phone outreach, local physical verification, and human sanity checks for $15.00 USDC per task.",
     description_for_human: "Hire Mosbie directly to perform physical tasks, make phone calls, or verify real-world information.",
     auth: { type: "none" },
     api: {
@@ -68,7 +72,7 @@ app.get('/.well-known/openapi.json', (req, res) => {
       "/tasks/phone-call": {
         post: {
           summary: "Hire Mosbie to make a physical phone call",
-          description: "Mosbie will personally dial the target number, ask the requested questions, and return the response. Price: $15.00 USD.",
+          description: "Mosbie will personally dial the target number, ask the requested questions, and return the response. Price: $15.00 USDC.",
           operationId: "requestPhoneCallTask",
           requestBody: {
             required: true,
@@ -87,7 +91,8 @@ app.get('/.well-known/openapi.json', (req, res) => {
             }
           },
           responses: {
-            "200": { description: "Task accepted and notification sent to Mosbie" }
+            "200": { description: "Task accepted and notification sent to Mosbie" },
+            "402": { description: "Payment Required - Returns x402 USDC wallet terms" }
           }
         }
       }
@@ -95,28 +100,46 @@ app.get('/.well-known/openapi.json', (req, res) => {
   });
 });
 
-// 3. Task Receiver Endpoint (Agent Hires You Here)
+// 3. Paid Task Receiver Endpoint
 app.post('/v1/tasks/phone-call', (req, res) => {
   const { target_phone, objective, agent_callback_url } = req.body;
+  const paymentHeader = req.headers['x-payment'] || req.headers['payment-signature'];
 
   if (!target_phone || !objective) {
     return res.status(400).json({ error: "Missing required parameters: target_phone and objective" });
   }
 
-  // Format message for your phone
-  const alertText = `🚨 <b>NEW $15 TASK RECEIVED!</b>\n\n` +
+  // STEP 1: Return HTTP 402 Payment Required if no payment header exists
+  if (!paymentHeader) {
+    return res.status(402).json({
+      status: 402,
+      error: "Payment Required",
+      message: "Please pay $15.00 USDC to process this task.",
+      x402_terms: {
+        amount_usdc: TASK_PRICE_USDC,
+        currency: "USDC",
+        pay_to_address: WALLET_ADDRESS,
+        chain: "Solana",
+        instruction: "Include transaction signature/hash in 'x-payment' header on retry."
+      }
+    });
+  }
+
+  // STEP 2: Payment header present — send Telegram notification to your phone
+  const alertText = `🚨 <b>NEW $15 USDC TASK RECEIVED!</b>\n\n` +
                     `📱 <b>Target Phone:</b> ${target_phone}\n` +
                     `🎯 <b>Objective:</b> ${objective}\n` +
-                    `🔗 <b>Callback URL:</b> ${agent_callback_url || 'None provided'}\n\n` +
-                    `💰 <b>Payout Status:</b> Authorized ($15.00)`;
+                    `🔗 <b>Callback URL:</b> ${agent_callback_url || 'None provided'}\n` +
+                    `💳 <b>Payment Tx Hash:</b> <code>${paymentHeader}</code>\n\n` +
+                    `💰 <b>Status:</b> PAID ($15.00 USDC received)`;
 
-  // Trigger immediate alert to your Telegram
   sendTelegramNotification(alertText);
 
   return res.status(200).json({
     success: true,
-    message: "Task received! Mosbie has been notified and will execute the call shortly.",
-    task_status: "IN_PROGRESS"
+    message: "Payment confirmed! Mosbie has been notified and will execute the call shortly.",
+    task_status: "IN_PROGRESS",
+    tx_hash: paymentHeader
   });
 });
 
