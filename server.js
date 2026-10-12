@@ -16,7 +16,7 @@ const TASK_PRICE_USDC = 15.00;
 
 // Helper: Send Telegram Alert to your phone
 function sendTelegramNotification(message) {
-  const data = JSON.stringify({
+  const payload = JSON.stringify({
     chat_id: TELEGRAM_CHAT_ID,
     text: message,
     parse_mode: 'HTML'
@@ -24,29 +24,19 @@ function sendTelegramNotification(message) {
 
   const options = {
     hostname: 'api.telegram.org',
-    // ADD ?parse_mode=HTML TO THE PATH HERE:
-    path: `/bot${TELEGRAM_BOT_TOKEN}/sendMessage?parse_mode=HTML`,
+    path: `/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(data)
+      'Content-Length': Buffer.byteLength(payload)
     }
   };
 
   const req = https.request(options, (res) => {
     res.on('data', (d) => process.stdout.write(d));
   });
-  req.on('error', (e) => console.error('Telegram Error:', e));
-  req.write(data);
-  req.end();
-}
-  };
-
-  const req = https.request(options, (res) => {
-    res.on('data', (d) => process.stdout.write(d));
-  });
   req.on('error', (e) => console.error('Telegram Notification Error:', e));
-  req.write(data);
+  req.write(payload);
   req.end();
 }
 
@@ -87,7 +77,6 @@ function verifySolanaTransaction(signature) {
       res.on('end', () => {
         try {
           const json = JSON.parse(responseData);
-          // If transaction exists on-chain and had no errors
           if (json.result && !json.result.meta.err) {
             resolve({ valid: true, simulated: false });
           } else {
