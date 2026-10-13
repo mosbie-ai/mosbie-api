@@ -181,14 +181,37 @@ app.get('/.well-known/openapi.json', (req, res) => {
 
 // 3. Paid Task Receiver Endpoint
 app.post('/v1/tasks/phone-call', async (req, res) => {
-  const paymentHeader = req.headers['x-payment'] || req.headers['payment-signature'];
+  const paymentHeader = req.headers['x-payment'] || req.headers['payment-signature'] || req.headers['payment_signature'];
 
-  // STEP 1: CHECK PAYWALL FIRST so unpaid probes receive 402 status immediately
+  // STEP 1: CHECK PAYWALL FIRST - Formatted strictly for x402 Protocol standards
   if (!paymentHeader) {
+    const paymentPayload = {
+      version: "1",
+      scheme: "exact",
+      network: "solana",
+      payTo: WALLET_ADDRESS,
+      price: TASK_PRICE_USDC,
+      currency: "USDC",
+      accepts: [
+        {
+          scheme: "exact",
+          network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+          asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Official Solana USDC Token Address
+          amount: "15000000", // Atomic units for $15 USDC
+          payTo: WALLET_ADDRESS
+        }
+      ]
+    };
+
+    // Set standard x402 response headers expected by crawlers
+    res.setHeader('PAYMENT-REQUIRED', Buffer.from(JSON.stringify(paymentPayload)).toString('base64'));
+    res.setHeader('X-PAYMENT-REQUIRED', JSON.stringify(paymentPayload));
+
     return res.status(402).json({
       status: 402,
       error: "Payment Required",
       message: "Please pay $15.00 USDC to process this task.",
+      x402: paymentPayload,
       x402_terms: {
         amount_usdc: TASK_PRICE_USDC,
         currency: "USDC",
