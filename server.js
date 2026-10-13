@@ -179,65 +179,55 @@ app.get('/.well-known/openapi.json', (req, res) => {
   });
 });
 
-// 3. Paid Task Receiver Endpoint (app.all matches GET, POST, OPTIONS)
+// 3. Paid Task Receiver Endpoint
 app.all('/v1/tasks/phone-call', async (req, res) => {
-  const paymentHeader = req.headers['x-payment'] || req.headers['payment-signature'] || req.headers['payment_signature'];
+  const paymentHeader = req.headers['x-payment'] || req.headers['payment-signature'] || req.headers['payment_signature'] || req.headers['authorization'];
 
-  // STEP 1: Dual-Chain 402 Paywall (Base EVM + Solana SPL)
+  // STEP 1: x402 Spec Compliant 402 Paywall Response
   if (!paymentHeader) {
     const paymentPayload = {
       version: "2",
-      scheme: "exact",
-      price: TASK_PRICE_USDC,
-      currency: "USDC",
       accepts: [
         {
           scheme: "exact",
           network: "base",
           asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
           amount: "15000000",
-          payTo: BASE_WALLET
+          payTo: BASE_WALLET,
+          resource: "/v1/tasks/phone-call",
+          mimeType: "application/json"
         },
         {
           scheme: "exact",
           network: "solana",
           asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
           amount: "15000000",
-          payTo: SOLANA_WALLET
+          payTo: SOLANA_WALLET,
+          resource: "/v1/tasks/phone-call",
+          mimeType: "application/json"
         }
       ]
     };
 
     const b64Payload = Buffer.from(JSON.stringify(paymentPayload)).toString('base64');
 
+    // Standard headers across x402 v1, v2, and legacy indexers
     res.setHeader('payment-required', b64Payload);
-    res.setHeader('x-payment-required', JSON.stringify(paymentPayload));
     res.setHeader('PAYMENT-REQUIRED', b64Payload);
+    res.setHeader('x-payment-required', JSON.stringify(paymentPayload));
 
-    return res.status(402).json({
-      status: 402,
-      error: "Payment Required",
-      message: "Please pay $15.00 USDC on Base or Solana to process this task.",
-      x402: paymentPayload,
-      x402_terms: {
-        amount_usdc: TASK_PRICE_USDC,
-        currency: "USDC",
-        base_address: BASE_WALLET,
-        solana_address: SOLANA_WALLET,
-        instruction: "Include transaction signature/hash in 'x-payment' header on retry."
-      }
-    });
+    return res.status(402).json(paymentPayload);
   }
 
-  // STEP 2: Request parameter check (Only enforce on actual task submission)
+  // STEP 2: Parameter Validation (Only for POST body)
   if (req.method === 'POST') {
-    const { target_phone, objective, agent_callback_url } = req.body;
+    const { target_phone, objective } = req.body || {};
     if (!target_phone || !objective) {
       return res.status(400).json({ error: "Missing required parameters: target_phone and objective" });
     }
   }
 
-  // STEP 3: Verification Check
+  // STEP 3: Verification
   const verification = await verifySolanaTransaction(paymentHeader);
 
   if (!verification.valid) {
@@ -247,7 +237,7 @@ app.all('/v1/tasks/phone-call', async (req, res) => {
     });
   }
 
-  // STEP 4: Send Telegram notification to your phone
+  // STEP 4: Alerting
   const alertText = `🚨 <b>NEW $15 USDC TASK RECEIVED!</b>\n\n` +
                     `📱 <b>Target Phone:</b> ${req.body.target_phone || 'N/A'}\n` +
                     `🎯 <b>Objective:</b> ${req.body.objective || 'N/A'}\n` +
