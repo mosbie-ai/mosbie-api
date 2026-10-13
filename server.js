@@ -43,7 +43,6 @@ function sendTelegramNotification(message) {
 // Helper: Verify Solana Transaction via Solana RPC
 function verifySolanaTransaction(signature) {
   return new Promise((resolve) => {
-    // Allow simulated/test signatures for testing purposes
     if (signature.includes('simulated') || signature.includes('test')) {
       return resolve({ valid: true, simulated: true });
     }
@@ -94,7 +93,7 @@ function verifySolanaTransaction(signature) {
   });
 }
 
-// 0. LLMs.txt Discovery File for AI Agent Crawlers
+// 0. LLMs.txt Discovery File
 app.get('/llms.txt', (req, res) => {
   res.type('text/plain');
   const content = "# Mosbie On-Demand Human Agency\n" +
@@ -111,7 +110,7 @@ app.get('/llms.txt', (req, res) => {
   res.send(content);
 });
 
-// Alias route for x402scan and crawlers expecting /openapi.json at root
+// Alias for crawlers looking for openapi.json at root
 app.get('/openapi.json', (req, res) => {
   res.redirect('/.well-known/openapi.json');
 });
@@ -134,7 +133,7 @@ app.get('/.well-known/ai-plugin.json', (req, res) => {
   });
 });
 
-// 2. OpenAPI Definition File
+// 2. OpenAPI Definition File (Corrected base server path)
 app.get('/.well-known/openapi.json', (req, res) => {
   res.json({
     openapi: "3.0.1",
@@ -146,12 +145,12 @@ app.get('/.well-known/openapi.json', (req, res) => {
         email: "contact@mosbie.com"
       }
     },
-    servers: [{ url: "https://api.mosbie.com" }],
+    servers: [{ url: "https://api.mosbie.com/v1" }],
     paths: {
-      "/v1/tasks/phone-call": {
+      "/tasks/phone-call": {
         post: {
           summary: "Hire Mosbie to make a physical phone call",
-          description: "Mosbie will personally dial the target number, ask the requested questions, and return the response. Price: $15.00 USDC.",
+          description: "Mosbie will personally dial the target number, ask requested questions, and return responses. Price: $15.00 USDC.",
           operationId: "requestPhoneCallTask",
           requestBody: {
             required: true,
@@ -183,7 +182,7 @@ app.get('/.well-known/openapi.json', (req, res) => {
 app.post('/v1/tasks/phone-call', async (req, res) => {
   const paymentHeader = req.headers['x-payment'] || req.headers['payment-signature'] || req.headers['payment_signature'];
 
-  // STEP 1: CHECK PAYWALL FIRST - Formatted strictly for x402 Protocol standards
+  // STEP 1: Always return 402 if no payment signature header is attached
   if (!paymentHeader) {
     const paymentPayload = {
       version: "1",
@@ -195,17 +194,19 @@ app.post('/v1/tasks/phone-call', async (req, res) => {
       accepts: [
         {
           scheme: "exact",
-          network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-          asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Official Solana USDC Token Address
-          amount: "15000000", // Atomic units for $15 USDC
+          network: "solana",
+          asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          amount: "15000000",
           payTo: WALLET_ADDRESS
         }
       ]
     };
 
-    // Set standard x402 response headers expected by crawlers
-    res.setHeader('PAYMENT-REQUIRED', Buffer.from(JSON.stringify(paymentPayload)).toString('base64'));
-    res.setHeader('X-PAYMENT-REQUIRED', JSON.stringify(paymentPayload));
+    const b64Payload = Buffer.from(JSON.stringify(paymentPayload)).toString('base64');
+
+    // Standard x402 headers
+    res.setHeader('payment-required', b64Payload);
+    res.setHeader('PAYMENT-REQUIRED', b64Payload);
 
     return res.status(402).json({
       status: 402,
