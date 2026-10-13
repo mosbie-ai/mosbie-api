@@ -141,11 +141,14 @@ app.get('/.well-known/openapi.json', (req, res) => {
     info: {
       title: "Mosbie Human Agency API",
       description: "API endpoint for AI agents to hire Mosbie for real-world tasks.",
-      version: "v1"
+      version: "v1",
+      contact: {
+        email: "contact@mosbie.com"
+      }
     },
-    servers: [{ url: "https://api.mosbie.com/v1" }],
+    servers: [{ url: "https://api.mosbie.com" }],
     paths: {
-      "/tasks/phone-call": {
+      "/v1/tasks/phone-call": {
         post: {
           summary: "Hire Mosbie to make a physical phone call",
           description: "Mosbie will personally dial the target number, ask the requested questions, and return the response. Price: $15.00 USDC.",
@@ -178,14 +181,9 @@ app.get('/.well-known/openapi.json', (req, res) => {
 
 // 3. Paid Task Receiver Endpoint
 app.post('/v1/tasks/phone-call', async (req, res) => {
-  const { target_phone, objective, agent_callback_url } = req.body;
   const paymentHeader = req.headers['x-payment'] || req.headers['payment-signature'];
 
-  if (!target_phone || !objective) {
-    return res.status(400).json({ error: "Missing required parameters: target_phone and objective" });
-  }
-
-  // STEP 1: Return HTTP 402 Payment Required if no payment header exists
+  // STEP 1: CHECK PAYWALL FIRST so unpaid probes receive 402 status immediately
   if (!paymentHeader) {
     return res.status(402).json({
       status: 402,
@@ -201,7 +199,13 @@ app.post('/v1/tasks/phone-call', async (req, res) => {
     });
   }
 
-  // STEP 2: On-Chain Validation Check
+  // STEP 2: Request parameter check
+  const { target_phone, objective, agent_callback_url } = req.body;
+  if (!target_phone || !objective) {
+    return res.status(400).json({ error: "Missing required parameters: target_phone and objective" });
+  }
+
+  // STEP 3: On-Chain Validation Check
   const verification = await verifySolanaTransaction(paymentHeader);
 
   if (!verification.valid) {
@@ -211,7 +215,7 @@ app.post('/v1/tasks/phone-call', async (req, res) => {
     });
   }
 
-  // STEP 3: Payment verified — send Telegram notification to your phone
+  // STEP 4: Send Telegram notification to your phone
   const alertText = `🚨 <b>NEW $15 USDC TASK RECEIVED!</b>\n\n` +
                     `📱 <b>Target Phone:</b> ${target_phone}\n` +
                     `🎯 <b>Objective:</b> ${objective}\n` +
