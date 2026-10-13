@@ -111,6 +111,11 @@ app.get('/llms.txt', (req, res) => {
   res.send(content);
 });
 
+// Alias route for x402scan and crawlers expecting /openapi.json at root
+app.get('/openapi.json', (req, res) => {
+  res.redirect('/.well-known/openapi.json');
+});
+
 // 1. AI Plugin Discovery Descriptor
 app.get('/.well-known/ai-plugin.json', (req, res) => {
   res.json({
