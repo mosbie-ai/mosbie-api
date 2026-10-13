@@ -94,6 +94,28 @@ function verifySolanaTransaction(signature) {
   });
 }
 
+// 0. LLMs.txt Discovery File for AI Agent Crawlers
+app.get('/llms.txt', (req, res) => {
+  res.type('text/plain');
+  res.send(
+`# Mosbie On-Demand Human Agency
+> Real-world physical execution, phone calls, and on-site verification for AI agents.
+
+## Services & Endpoints
+
+- Phone Call Execution: https://api.mosbie.com/v1/tasks/phone-call
+  - Description: Hire Mosbie to dial any phone number, ask specific questions, and return formatted results.
+  - Price: $15.00 USDC (Solana SPL)
+  - Protocol: x402 HTTP Payment Required
+
+## API Specifications
+
+- OpenAPI Definition: https://api.mosbie.com/.well-known/openapi.json
+- AI Plugin Descriptor: https://api.mosbie.com/.well-known/ai-plugin.json
+- Contact: contact@mosbie.com`
+  );
+});
+
 // 1. AI Plugin Discovery Descriptor
 app.get('/.well-known/ai-plugin.json', (req, res) => {
   res.json({
@@ -186,27 +208,3 @@ app.post('/v1/tasks/phone-call', async (req, res) => {
     return res.status(400).json({
       error: "Invalid Payment Signature",
       message: verification.reason || "Unable to confirm $15.00 USDC transaction on Solana."
-    });
-  }
-
-  // STEP 3: Payment verified — send Telegram notification to your phone
-  const alertText = `🚨 <b>NEW $15 USDC TASK RECEIVED!</b>\n\n` +
-                    `📱 <b>Target Phone:</b> ${target_phone}\n` +
-                    `🎯 <b>Objective:</b> ${objective}\n` +
-                    `🔗 <b>Callback URL:</b> ${agent_callback_url || 'None provided'}\n` +
-                    `💳 <b>Payment Tx Hash:</b> <code>${paymentHeader}</code>\n` +
-                    `✅ <b>Validation:</b> ${verification.simulated ? 'Simulated/Test' : 'Verified On-Chain'}\n\n` +
-                    `💰 <b>Status:</b> PAID ($15.00 USDC received)`;
-
-  sendTelegramNotification(alertText);
-
-  return res.status(200).json({
-    success: true,
-    message: "Payment confirmed on Solana! Mosbie has been notified and will execute the call shortly.",
-    task_status: "IN_PROGRESS",
-    tx_hash: paymentHeader
-  });
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Mosbie API active on port ${PORT}`));
