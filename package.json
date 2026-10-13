@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@coinbase/x402": "latest",
+    "@x402/core": "latest",
+    "@x402/evm": "latest",
+    "@x402/express": "latest",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "x402-express": "latest"
+    "express": "^4.19.2"
   }
 }

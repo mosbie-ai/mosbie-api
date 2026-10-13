@@ -1,7 +1,9 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const { paymentMiddleware } = require("x402-express");
+const { paymentMiddleware, x402ResourceServer } = require("@x402/express");
+const { ExactEvmScheme } = require("@x402/evm/exact/server");
+const { HTTPFacilitatorClient } = require("@x402/core/server");
 
 // ---------- CONFIG (all secrets come from environment variables) ----------
 const {
@@ -23,15 +25,21 @@ for (const [name, value] of Object.entries({
   }
 }
 
-// Mainnet needs the Coinbase (CDP) facilitator; testnet uses the default one.
-let facilitator;
-if (X402_NETWORK === "base") {
+// x402 v2 network IDs. Mainnet needs the Coinbase (CDP) facilitator;
+// testnet uses the public one.
+const isMainnet = X402_NETWORK === "base";
+const NETWORK_ID = isMainnet ? "eip155:8453" : "eip155:84532";
+let facilitatorConfig = { url: "https://x402.org/facilitator" };
+if (isMainnet) {
   if (!process.env.CDP_API_KEY_ID || !process.env.CDP_API_KEY_SECRET) {
     console.error("Mainnet needs CDP_API_KEY_ID and CDP_API_KEY_SECRET (cdp.coinbase.com).");
     process.exit(1);
   }
-  facilitator = require("@coinbase/x402").facilitator;
+  facilitatorConfig = require("@coinbase/x402").facilitator;
 }
+const resourceServer = new x402ResourceServer(
+  new HTTPFacilitatorClient(facilitatorConfig)
+).register(NETWORK_ID, new ExactEvmScheme());
 
 const app = express();
 app.set("trust proxy", 1);
@@ -150,21 +158,26 @@ app.get("/.well-known/openapi.json", (req, res) => {
 // ---------- x402 PAYWALL ----------
 // The middleware returns a spec-compliant 402 for unpaid requests and verifies
 // the payment through the facilitator before the handler below ever runs.
+const phoneCallRoute = {
+  accepts: [
+    {
+      scheme: "exact",
+      price: "$15.00",
+      network: NETWORK_ID,
+      payTo: BASE_WALLET_ADDRESS,
+    },
+  ],
+  description: "Mosbie makes a phone call for you and reports back",
+  mimeType: "application/json",
+};
+
 app.use(
   paymentMiddleware(
-    BASE_WALLET_ADDRESS,
     {
-      "/v1/tasks/phone-call": {
-        price: "$15.00",
-        network: X402_NETWORK,
-        config: {
-          description: "Mosbie makes a phone call for you and reports back",
-          mimeType: "application/json",
-          maxTimeoutSeconds: 300,
-        },
-      },
+      "POST /v1/tasks/phone-call": phoneCallRoute,
+      "GET /v1/tasks/phone-call": phoneCallRoute,
     },
-    facilitator
+    resourceServer
   )
 );
 
