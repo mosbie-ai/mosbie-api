@@ -10,8 +10,9 @@ app.use(express.json());
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8684967760:AAGzf3IjzObpWZaGqTwxLcKvM63c7ptFkdE';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '6836953572';
 
-// Your Solflare Wallet Address for receiving $15.00 USDC
-const WALLET_ADDRESS = process.env.WALLET_ADDRESS || '3FS2G4FA9LUEFuyYhpodRYYS4maP7ZYRL9tSwnALvpgV';
+// WALLETS
+const SOLANA_WALLET = process.env.WALLET_ADDRESS || '3FS2G4FA9LUEFuyYhpodRYYS4maP7ZYRL9tSwnALvpgV';
+const BASE_WALLET = process.env.BASE_WALLET_ADDRESS || '0x4603366F72023572b139D19e354e9FA3A50c634B';
 const TASK_PRICE_USDC = 15.00;
 
 // Helper: Send Telegram Alert to your phone
@@ -101,7 +102,7 @@ app.get('/llms.txt', (req, res) => {
     "## Services & Endpoints\n\n" +
     "- Phone Call Execution: https://api.mosbie.com/v1/tasks/phone-call\n" +
     "  - Description: Hire Mosbie to dial any phone number, ask specific questions, and return formatted results.\n" +
-    "  - Price: $15.00 USDC (Solana SPL)\n" +
+    "  - Price: $15.00 USDC (Base or Solana)\n" +
     "  - Protocol: x402 HTTP Payment Required\n\n" +
     "## API Specifications\n\n" +
     "- OpenAPI Definition: https://api.mosbie.com/.well-known/openapi.json\n" +
@@ -133,7 +134,7 @@ app.get('/.well-known/ai-plugin.json', (req, res) => {
   });
 });
 
-// 2. OpenAPI Definition File (Corrected base server path)
+// 2. OpenAPI Definition File
 app.get('/.well-known/openapi.json', (req, res) => {
   res.json({
     openapi: "3.0.1",
@@ -145,9 +146,9 @@ app.get('/.well-known/openapi.json', (req, res) => {
         email: "contact@mosbie.com"
       }
     },
-    servers: [{ url: "https://api.mosbie.com/v1" }],
+    servers: [{ url: "https://api.mosbie.com" }],
     paths: {
-      "/tasks/phone-call": {
+      "/v1/tasks/phone-call": {
         post: {
           summary: "Hire Mosbie to make a physical phone call",
           description: "Mosbie will personally dial the target number, ask requested questions, and return responses. Price: $15.00 USDC.",
@@ -182,42 +183,46 @@ app.get('/.well-known/openapi.json', (req, res) => {
 app.post('/v1/tasks/phone-call', async (req, res) => {
   const paymentHeader = req.headers['x-payment'] || req.headers['payment-signature'] || req.headers['payment_signature'];
 
-  // STEP 1: Always return 402 if no payment signature header is attached
+  // STEP 1: Dual-Chain 402 Paywall (Base EVM + Solana SPL)
   if (!paymentHeader) {
     const paymentPayload = {
-      version: "1",
+      version: "2",
       scheme: "exact",
-      network: "solana",
-      payTo: WALLET_ADDRESS,
       price: TASK_PRICE_USDC,
       currency: "USDC",
       accepts: [
         {
           scheme: "exact",
+          network: "base",
+          asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          amount: "15000000",
+          payTo: BASE_WALLET
+        },
+        {
+          scheme: "exact",
           network: "solana",
           asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
           amount: "15000000",
-          payTo: WALLET_ADDRESS
+          payTo: SOLANA_WALLET
         }
       ]
     };
 
     const b64Payload = Buffer.from(JSON.stringify(paymentPayload)).toString('base64');
 
-    // Standard x402 headers
     res.setHeader('payment-required', b64Payload);
-    res.setHeader('PAYMENT-REQUIRED', b64Payload);
+    res.setHeader('x-payment-required', JSON.stringify(paymentPayload));
 
     return res.status(402).json({
       status: 402,
       error: "Payment Required",
-      message: "Please pay $15.00 USDC to process this task.",
+      message: "Please pay $15.00 USDC on Base or Solana to process this task.",
       x402: paymentPayload,
       x402_terms: {
         amount_usdc: TASK_PRICE_USDC,
         currency: "USDC",
-        pay_to_address: WALLET_ADDRESS,
-        chain: "Solana",
+        base_address: BASE_WALLET,
+        solana_address: SOLANA_WALLET,
         instruction: "Include transaction signature/hash in 'x-payment' header on retry."
       }
     });
@@ -229,13 +234,13 @@ app.post('/v1/tasks/phone-call', async (req, res) => {
     return res.status(400).json({ error: "Missing required parameters: target_phone and objective" });
   }
 
-  // STEP 3: On-Chain Validation Check
+  // STEP 3: Verification Check
   const verification = await verifySolanaTransaction(paymentHeader);
 
   if (!verification.valid) {
     return res.status(400).json({
       error: "Invalid Payment Signature",
-      message: verification.reason || "Unable to confirm $15.00 USDC transaction on Solana."
+      message: verification.reason || "Unable to confirm $15.00 USDC transaction on-chain."
     });
   }
 
@@ -252,7 +257,7 @@ app.post('/v1/tasks/phone-call', async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: "Payment confirmed on Solana! Mosbie has been notified and will execute the call shortly.",
+    message: "Payment confirmed! Mosbie has been notified and will execute the call shortly.",
     task_status: "IN_PROGRESS",
     tx_hash: paymentHeader
   });
