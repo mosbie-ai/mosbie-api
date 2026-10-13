@@ -179,8 +179,8 @@ app.get('/.well-known/openapi.json', (req, res) => {
   });
 });
 
-// 3. Paid Task Receiver Endpoint
-app.post('/v1/tasks/phone-call', async (req, res) => {
+// 3. Paid Task Receiver Endpoint (app.all matches GET, POST, OPTIONS)
+app.all('/v1/tasks/phone-call', async (req, res) => {
   const paymentHeader = req.headers['x-payment'] || req.headers['payment-signature'] || req.headers['payment_signature'];
 
   // STEP 1: Dual-Chain 402 Paywall (Base EVM + Solana SPL)
@@ -212,6 +212,7 @@ app.post('/v1/tasks/phone-call', async (req, res) => {
 
     res.setHeader('payment-required', b64Payload);
     res.setHeader('x-payment-required', JSON.stringify(paymentPayload));
+    res.setHeader('PAYMENT-REQUIRED', b64Payload);
 
     return res.status(402).json({
       status: 402,
@@ -228,10 +229,12 @@ app.post('/v1/tasks/phone-call', async (req, res) => {
     });
   }
 
-  // STEP 2: Request parameter check
-  const { target_phone, objective, agent_callback_url } = req.body;
-  if (!target_phone || !objective) {
-    return res.status(400).json({ error: "Missing required parameters: target_phone and objective" });
+  // STEP 2: Request parameter check (Only enforce on actual task submission)
+  if (req.method === 'POST') {
+    const { target_phone, objective, agent_callback_url } = req.body;
+    if (!target_phone || !objective) {
+      return res.status(400).json({ error: "Missing required parameters: target_phone and objective" });
+    }
   }
 
   // STEP 3: Verification Check
@@ -246,9 +249,9 @@ app.post('/v1/tasks/phone-call', async (req, res) => {
 
   // STEP 4: Send Telegram notification to your phone
   const alertText = `🚨 <b>NEW $15 USDC TASK RECEIVED!</b>\n\n` +
-                    `📱 <b>Target Phone:</b> ${target_phone}\n` +
-                    `🎯 <b>Objective:</b> ${objective}\n` +
-                    `🔗 <b>Callback URL:</b> ${agent_callback_url || 'None provided'}\n` +
+                    `📱 <b>Target Phone:</b> ${req.body.target_phone || 'N/A'}\n` +
+                    `🎯 <b>Objective:</b> ${req.body.objective || 'N/A'}\n` +
+                    `🔗 <b>Callback URL:</b> ${req.body.agent_callback_url || 'None provided'}\n` +
                     `💳 <b>Payment Tx Hash:</b> <code>${paymentHeader}</code>\n` +
                     `✅ <b>Validation:</b> ${verification.simulated ? 'Simulated/Test' : 'Verified On-Chain'}\n\n` +
                     `💰 <b>Status:</b> PAID ($15.00 USDC received)`;
