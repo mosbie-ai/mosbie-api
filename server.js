@@ -119,7 +119,37 @@ async function sendTelegram(text) {
 }
 
 // ---------- DISCOVERY FILES (free, not behind the paywall) ----------
-app.get("/", (req, res) => res.json({ name: "Mosbie Human Agency API", status: "ok" }));
+// Landing page for api.mosbie.com. Directories read the title and description from here,
+// so this keeps the API listing separate from the main mosbie.com website.
+const SITE_TITLE = "Mosbie Human Agency API | Hire a human to call, email or visit";
+const SITE_DESC =
+  "Things only humans can do, for AI agents: phone calls, emails and in-person visits, " +
+  "paid per task in USDC via x402. Same-day delivery.";
+app.get("/", (req, res) => {
+  if (req.accepts(["html", "json"]) === "json") {
+    return res.json({ name: "Mosbie Human Agency API", status: "ok" });
+  }
+  const items = Object.entries(TASKS)
+    .map(
+      ([slug, t]) =>
+        `<li><strong>${escapeHtml(t.summary)}</strong> &ndash; ${escapeHtml(t.price)} USDC<br>` +
+        `<code>POST /v1/tasks/${slug}</code></li>`
+    )
+    .join("");
+  res.type("html").send(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+      `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+      `<title>${escapeHtml(SITE_TITLE)}</title>` +
+      `<meta name="description" content="${escapeHtml(SITE_DESC)}">` +
+      `<meta property="og:title" content="${escapeHtml(SITE_TITLE)}">` +
+      `<meta property="og:description" content="${escapeHtml(SITE_DESC)}">` +
+      `<meta property="og:url" content="https://api.mosbie.com">` +
+      `</head><body style="font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px">` +
+      `<h1>Mosbie Human Agency API</h1><p>${escapeHtml(SITE_DESC)}</p><ul>${items}</ul>` +
+      `<p><a href="/llms.txt">llms.txt</a> &middot; <a href="/.well-known/openapi.json">OpenAPI</a> ` +
+      `&middot; <a href="https://www.mosbie.com">mosbie.com</a></p></body></html>`
+  );
+});
 
 app.get("/llms.txt", (req, res) => {
   const lines = Object.entries(TASKS).map(
