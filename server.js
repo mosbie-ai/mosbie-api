@@ -1,4 +1,5 @@
 require("dotenv").config();
+const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const { paymentMiddleware, x402ResourceServer } = require("@x402/express");
@@ -66,6 +67,12 @@ async function sendTelegram(text) {
   }
 }
 
+// ---------- SERVICE TERMS (edit this text in one place) ----------
+const SERVICE_DESCRIPTION =
+  "Mosbie phones a South African number (+27), asks your questions, and reports the answers. " +
+  "Same-day turnaround during South African business hours (SAST, UTC+2). " +
+  "If the business is closed or cannot be reached that day, the result will say so.";
+
 // ---------- DISCOVERY FILES (free, not behind the paywall) ----------
 app.get("/", (req, res) => res.json({ name: "Mosbie Human Agency API", status: "ok" }));
 
@@ -75,7 +82,7 @@ app.get("/llms.txt", (req, res) => {
       "> Real-world phone calls and verification for AI agents.\n\n" +
       "## Services & Endpoints\n\n" +
       "- Phone Call Execution: https://api.mosbie.com/v1/tasks/phone-call\n" +
-      "  - Description: Mosbie dials a phone number, asks your questions, and returns the result.\n" +
+      `  - Description: ${SERVICE_DESCRIPTION}\n` +
       "  - Price: $15.00 USDC on Base\n" +
       "  - Protocol: x402 HTTP Payment Required\n\n" +
       "## API Specifications\n\n" +
@@ -92,8 +99,7 @@ app.get("/.well-known/ai-plugin.json", (req, res) => {
     schema_version: "v1",
     name_for_model: "mosbie_human_executor",
     name_for_human: "Mosbie On-Demand Human Agency",
-    description_for_model:
-      "Human execution service operated by Mosbie. Makes phone calls on request for $15.00 USDC per task, paid via x402.",
+    description_for_model: `${SERVICE_DESCRIPTION} Price: $15.00 USDC per task, paid via x402.`,
     description_for_human: "Hire Mosbie to make phone calls and verify real-world information.",
     auth: { type: "none" },
     api: { type: "openapi", url: "https://api.mosbie.com/.well-known/openapi.json" },
@@ -116,8 +122,7 @@ app.get("/.well-known/openapi.json", (req, res) => {
       "/v1/tasks/phone-call": {
         post: {
           summary: "Hire Mosbie to make a phone call",
-          description:
-            "Mosbie dials the target number, asks the requested questions, and returns the answers. Price: $15.00 USDC on Base via x402.",
+          description: `${SERVICE_DESCRIPTION} Price: $15.00 USDC on Base via x402.`,
           operationId: "requestPhoneCallTask",
           requestBody: {
             required: true,
@@ -128,15 +133,18 @@ app.get("/.well-known/openapi.json", (req, res) => {
                   properties: {
                     target_phone: {
                       type: "string",
-                      description: "Phone number with country code, e.g. +14155550123",
+                      pattern: "^\\+27[0-9]{9}$",
+                      description: "South African phone number in international format, e.g. +27821234567",
+                      example: "+27821234567",
                     },
                     objective: {
                       type: "string",
-                      description: "Detailed instructions on what to ask during the call.",
+                      description: "Detailed instructions on what to ask during the call (5-2000 characters).",
+                      example: "Ask whether they are open today and what time they close.",
                     },
                     agent_callback_url: {
                       type: "string",
-                      description: "Optional webhook URL for the call result.",
+                      description: "Optional URL where Mosbie will send the call result.",
                     },
                   },
                   required: ["target_phone", "objective"],
@@ -145,8 +153,50 @@ app.get("/.well-known/openapi.json", (req, res) => {
             },
           },
           responses: {
-            200: { description: "Payment verified; task accepted" },
-            400: { description: "Invalid request body" },
+            200: {
+              description: "Payment verified; task accepted and queued for a same-day call",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", description: "True when the task was accepted." },
+                      task_id: { type: "string", description: "Reference ID for this task." },
+                      task_status: {
+                        type: "string",
+                        enum: ["IN_PROGRESS"],
+                        description: "Status of the task at the time of the response.",
+                      },
+                      expected_completion: {
+                        type: "string",
+                        description: "When to expect the result.",
+                      },
+                      message: { type: "string", description: "Human-readable confirmation." },
+                    },
+                    required: ["success", "task_id", "task_status", "message"],
+                  },
+                  example: {
+                    success: true,
+                    task_id: "3f6c2a9e-8f0b-4d52-9d2e-7a1b5c4e9f10",
+                    task_status: "IN_PROGRESS",
+                    expected_completion: "Same day, during South African business hours (SAST)",
+                    message: "Payment confirmed. Mosbie has been notified and will make the call shortly.",
+                  },
+                },
+              },
+            },
+            400: {
+              description: "Invalid request body (nothing is charged)",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { error: { type: "string" } },
+                    required: ["error"],
+                  },
+                },
+              },
+            },
             402: { description: "Payment required (x402)" },
           },
         },
@@ -167,7 +217,7 @@ const phoneCallRoute = {
       payTo: BASE_WALLET_ADDRESS,
     },
   ],
-  description: "Mosbie makes a phone call for you and reports back",
+  description: SERVICE_DESCRIPTION,
   mimeType: "application/json",
 };
 
@@ -189,10 +239,10 @@ app.all("/v1/tasks/phone-call", async (req, res) => {
 
   const { target_phone, objective, agent_callback_url } = req.body || {};
 
-  if (typeof target_phone !== "string" || !/^\+[1-9]\d{6,14}$/.test(target_phone.trim())) {
+  if (typeof target_phone !== "string" || !/^\+27\d{9}$/.test(target_phone.trim())) {
     return res
       .status(400)
-      .json({ error: "target_phone must be in international format, e.g. +14155550123" });
+      .json({ error: "target_phone must be a South African number, e.g. +27821234567" });
   }
   if (typeof objective !== "string" || objective.trim().length < 5 || objective.length > 2000) {
     return res.status(400).json({ error: "objective must be 5-2000 characters." });
@@ -206,8 +256,11 @@ app.all("/v1/tasks/phone-call", async (req, res) => {
     }
   }
 
+  const taskId = crypto.randomUUID();
+
   await sendTelegram(
     `🚨 <b>NEW $15 USDC TASK (PAID)</b>\n\n` +
+      `🆔 <b>Task ID:</b> <code>${taskId}</code>\n` +
       `📱 <b>Target phone:</b> ${escapeHtml(target_phone)}\n` +
       `🎯 <b>Objective:</b> ${escapeHtml(objective)}\n` +
       `🔗 <b>Callback URL:</b> ${escapeHtml(agent_callback_url || "None provided")}`
@@ -215,8 +268,10 @@ app.all("/v1/tasks/phone-call", async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: "Payment confirmed. Mosbie has been notified and will make the call shortly.",
+    task_id: taskId,
     task_status: "IN_PROGRESS",
+    expected_completion: "Same day, during South African business hours (SAST)",
+    message: "Payment confirmed. Mosbie has been notified and will make the call shortly.",
   });
 });
 
